@@ -23,7 +23,7 @@ def split_file_on_tokens(text, tokens) -> list[str]:
     pattern = '|'.join(re.escape(token) for token in tokens)
     return re.split(pattern, text)
 
-def find_chunk_boundaries_from_bytes(file_content: bytes, desired_num_chunks: int, split_special_token: bytes) -> list[int]:
+def find_chunk_boundaries_from_bytes(file_content: bytes, desired_num_chunks: int, split_special_tokens: list[bytes]) -> list[int]:
     """Find chunk boundaries in file content (similar to find_chunk_boundaries but for bytes)"""
     file_size = len(file_content)
     chunk_size = file_size // desired_num_chunks
@@ -43,10 +43,15 @@ def find_chunk_boundaries_from_bytes(file_content: bytes, desired_num_chunks: in
             end_pos = min(position + mini_chunk_size, file_size)
             mini_chunk = file_content[position:end_pos]
             
-            # Find the special token in the mini chunk
-            found_at = mini_chunk.find(split_special_token)
-            if found_at != -1:
-                chunk_boundaries[bi] = position + found_at
+            # Find any of the special tokens in the mini chunk
+            best_found_at = -1
+            for special_token in split_special_tokens:
+                found_at = mini_chunk.find(special_token)
+                if found_at != -1 and (best_found_at == -1 or found_at < best_found_at):
+                    best_found_at = found_at
+            
+            if best_found_at != -1:
+                chunk_boundaries[bi] = position + best_found_at
                 break
             position += mini_chunk_size
     
@@ -84,8 +89,8 @@ def train_bpe(
         file_content = f.read()
     
     # Find boundaries in the file content
-    #FIX THIS FROM HARDCODING ONE SPECIAL TOKEN
-    boundaries = find_chunk_boundaries_from_bytes(file_content, num_processes, special_tokens[0].encode("utf-8"))
+    special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
+    boundaries = find_chunk_boundaries_from_bytes(file_content, num_processes, special_tokens_bytes)
     
     # Create chunks of data to process
     chunk_data = []
@@ -153,18 +158,5 @@ def train_bpe(
     # Convert vocab set to dict with int keys and bytes values
     vocab_dict = {i: token for i, token in enumerate(vocab)}
     return vocab_dict, merges
-
-    
-
-
-
-           
-    
-
-    
-            
-
-
-            
 
 
