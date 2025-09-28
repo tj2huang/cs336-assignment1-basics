@@ -5,7 +5,7 @@ def main():
     # Use the corpus.en file directly
     input_path = FIXTURES_PATH / "corpus.en"
     vocab_size = 500  # Start small for debugging
-    special_tokens = ["<|endoftext|>"]
+    special_tokens = ["<|endoftext|>", "<|startoftext|>", "<|pad|>"]
 
     print("Starting BPE training...")
     print(f"Input file: {input_path}")
