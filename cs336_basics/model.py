@@ -21,3 +21,42 @@ class Linear(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return einsum(self.weight, x, "d_out d_in, ... d_in -> ... d_out")
+
+class Embedding(torch.nn.Module):
+    def __init__(self, num_embeddings, embedding_dim, device=None, dtype=None):
+        super().__init__()
+        # Size of the vocabulary
+        self.num_embeddings = num_embeddings
+
+        # Dimension of the embedding vectors
+        self.embedding_dim = embedding_dim
+        matrix = torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype)
+        weight = torch.nn.init.trunc_normal_(matrix, mean=0, std=1, a = -3, b=3)
+
+        self.weight = torch.nn.Parameter(weight)
+        
+    def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
+        # Simple indexing
+        return self.weight[token_ids]
+
+class RMSNorm(torch.nn.Module):
+    def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype=None):
+        super().__init__()
+        self.d_model = d_model
+        self.eps = eps
+        self.weight = torch.nn.Parameter(torch.ones(d_model, device=device, dtype=dtype))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch_size, sequence_length, d_model)
+        # original dtype
+        in_dtype = x.dtype
+
+        # upscale
+        x = x.to(torch.float32)
+
+        # dim = -1: only normalize on a, the last dimension
+        rms = torch.sqrt(torch.mean(x**2, dim=-1, keepdim=True) + self.eps)
+        normalized = x / rms
+        result = normalized * self.weight
+
+        return result.to(in_dtype)
