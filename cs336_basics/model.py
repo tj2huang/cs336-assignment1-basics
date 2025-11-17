@@ -92,15 +92,15 @@ class RotaryPositionalEmbedding(torch.nn.Module):
         self.max_seq_len = max_seq_len
         rotation_matrices = torch.empty(self.max_seq_len, self.d_k, self.d_k)
 
-        # Create arange for positions from 0 to max_seq_len
+        # Create arange for positions from 0 to max_seq_len, for each i
         positions = torch.arange(0, self.max_seq_len, device=device)
-        # Base frequency computation: for pair i, frequency is 2*i/d_k
-        # torch.arange(0, d_k, 2) gives [0, 2, 4, ..., d_k-2] which are the even indices
-        # Dividing by d_k gives frequencies [0, 2/d_k, 4/d_k, ..., (d_k-2)/d_k]
+
+        # for pair i, frequency is 2*i/d_k
         freqs = torch.arange(0, self.d_k, 2, device=device) / self.d_k
         
         # Compute angles: position / (theta ** freq)
         # Shape: (max_seq_len, d_k // 2)
+        # squeeze and unsqueeze makes broadcasting work
         angles = positions.unsqueeze(-1) / (self.theta ** freqs.unsqueeze(0))
         
         cos_theta = torch.cos(angles)  # Shape: (max_seq_len, d_k // 2)
@@ -142,7 +142,6 @@ class RotaryPositionalEmbedding(torch.nn.Module):
             # token_positions: shape (..., seq_len)
             # rotation_matrices: shape (max_seq_len, d_k, d_k)
 
-            # Use advanced indexing to select rotation matrices based on positions
             selected_rotations = rotation_matrices[token_positions]  # Shape: (..., seq_len, d_k, d_k)
             
             # Apply rotations using torch.einsum
@@ -152,3 +151,8 @@ class RotaryPositionalEmbedding(torch.nn.Module):
             return torch.einsum('...sij,...sj->...si', selected_rotations, x)
 
         return apply_rope_rotations(x, token_positions, self.rotation_matrices)
+
+def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
+    max_x = torch.max(x, dim=dim, keepdim=True).values
+    exp_x = torch.exp(x - max_x)
+    return exp_x / exp_x.sum(dim=dim, keepdim=True)
