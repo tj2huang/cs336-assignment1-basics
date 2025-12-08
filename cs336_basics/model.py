@@ -155,3 +155,22 @@ def softmax(x: torch.Tensor, dim: int) -> torch.Tensor:
     max_x = torch.max(x, dim=dim, keepdim=True).values
     exp_x = torch.exp(x - max_x)
     return exp_x / exp_x.sum(dim=dim, keepdim=True)
+
+def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,  mask: torch.Tensor | None = None) -> torch.Tensor:
+    # q (batch_size, ..., n, d_k) 
+    # k (batch_size, ..., m, d_k) 
+    # v (batch_size, ..., m, d_v)
+    # mask (batch_size, ..., n, m)
+
+    d_k = q.shape[-1]
+
+    #Q^T @ K 
+    e_matrix = einsum(q, k, "... n d_k, ... m d_k -> ... n m") / sqrt(d_k)
+
+    if mask is not None:
+  
+        e_matrix = e_matrix.masked_fill(~mask, -float('inf'))
+
+    a_matrix = softmax(e_matrix, dim=-1)
+
+    return einsum(a_matrix, v, "... n m, ... m d_v -> ... n d_v")
