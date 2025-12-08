@@ -111,15 +111,14 @@ class RotaryPositionalEmbedding(torch.nn.Module):
         # [sin   cos]
         # We need to set diagonal elements and off-diagonal elements separately
         
-        # Set diagonal elements for even indices (top-left and bottom-right of each 2x2 block)
-        for i in range(self.d_k // 2):
-            rotation_matrices[:, 2*i, 2*i] = cos_theta[:, i]
-            rotation_matrices[:, 2*i+1, 2*i+1] = cos_theta[:, i]
-        
-        # Set off-diagonal elements (top-right and bottom-left of each 2x2 block)
-        for i in range(self.d_k // 2):
-            rotation_matrices[:, 2*i, 2*i+1] = -sin_theta[:, i]
-            rotation_matrices[:, 2*i+1, 2*i] = sin_theta[:, i]
+        idx = torch.arange(self.d_k // 2, device=device)
+        even_idx = 2 * idx
+        odd_idx = even_idx + 1
+
+        rotation_matrices[:, even_idx, even_idx] = cos_theta[:, idx]
+        rotation_matrices[:, odd_idx, odd_idx] = cos_theta[:, idx]
+        rotation_matrices[:, even_idx, odd_idx] = -sin_theta[:, idx]
+        rotation_matrices[:, odd_idx, even_idx] = sin_theta[:, idx]
 
         # constant so does not need to be a torch.nn parameter
         self.rotation_matrices = rotation_matrices
