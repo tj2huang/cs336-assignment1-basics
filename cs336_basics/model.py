@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from einops import rearrange, einsum
 from math import sqrt
 
@@ -143,11 +144,11 @@ class RotaryPositionalEmbedding(torch.nn.Module):
 
             selected_rotations = rotation_matrices[token_positions]  # Shape: (..., seq_len, d_k, d_k)
             
-            # Apply rotations using torch.einsum
+            # Apply rotations using einops.einsum
             # selected_rotations: (..., seq_len, d_k, d_k)
             # x: (..., seq_len, d_k)
             # Output: (..., seq_len, d_k)
-            return torch.einsum('...sij,...sj->...si', selected_rotations, x)
+            return einsum(selected_rotations, x, "... s i j, ... s j -> ... s i")
 
         return apply_rope_rotations(x, token_positions, self.rotation_matrices)
 
@@ -174,3 +175,44 @@ def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tens
     a_matrix = softmax(e_matrix, dim=-1)
 
     return einsum(a_matrix, v, "... n m, ... m d_v -> ... n d_v")
+
+
+class MultiHeadSelfAttention(torch.nn.Module):
+    def __init__(self, d_model: int, num_heads: int, use_rope: bool = False, theta=None, max_seq_len: int | None = None, device=None, dtype=None):
+        super().__init__()
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.d_v = d_model // num_heads
+        self.Q = nn.Parameter(torch.empty(num_heads*self.d_k, d_model, device=device, dtype=dtype))
+        self.K = nn.Parameter(torch.empty(num_heads*self.d_k, d_model, device=device, dtype=dtype))
+        self.V = nn.Parameter(torch.empty(num_heads*self.d_v, d_model, device=device, dtype=dtype))
+        self.O = nn.Parameter(torch.empty(d_model, num_heads*self.d_v, device=device, dtype=dtype))
+        self.use_rope = use_rope
+        self.rope = RotaryPositionalEmbedding(theta, self.d_k, max_seq_len, device=device) if (use_rope and theta is not None and max_seq_len is not None) else None
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None) -> torch.Tensor:
+        Q_batch = rearrange(self.Q, "(head d_k) d_model -> head d_k d_model", head=self.num_heads, d_k=self.d_k)
+        K_batch = rearrange(self.K, "(head d_k) d_model -> head d_k d_model", head=self.num_heads, d_k=self.d_k)
+        V_batch = rearrange(self.V, "(head d_v) d_model -> head d_v d_model", head=self.num_heads, d_v=self.d_v)
+
+        # get query, key, value vectors per head per token
+        WQx = einsum(Q_batch, x, "head d_k d_model, ... seq d_model -> ... head seq d_k")
+        WKx = einsum(K_batch, x, "head d_k d_model, ... seq d_model -> ... head seq d_k")
+        WVx = einsum(V_batch, x, "head d_v d_model, ... seq d_model -> ... head seq d_v")
+
+        # Apply RoPE to queries and keys if enabled (after projection)
+        if self.rope is not None and token_positions is not None:
+            WQx = self.rope(WQx, token_positions)
+            WKx = self.rope(WKx, token_positions)
+
+        seq_len = x.shape[-2]
+        causal_mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool))
+
+        multihead = scaled_dot_product_attention(WQx, WKx, WVx, causal_mask)
+        multihead = rearrange(multihead, "... head seq d_v -> ... seq (head d_v)", head=self.num_heads, d_v=self.d_v)
+        return einsum(self.O, multihead, "d_model d_out, ... seq d_out -> ... seq d_model")
+
+
+
+
